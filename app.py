@@ -1,103 +1,170 @@
 import streamlit as st
 import pandas as pd
-from sklearn.model_selection import train_test_split, RandomizedSearchCV
-from sklearn.linear_model import LogisticRegression
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import classification_report, confusion_matrix, precision_score, recall_score
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 from sklearn.preprocessing import StandardScaler
 
-# Load dataset
-data = pd.read_csv('inliers.csv')
+# Initialize session state if not exists
+if 'scaler' not in st.session_state:
+    st.session_state.scaler = StandardScaler()
+    st.session_state.scaler_lr = StandardScaler()
 
-# Select relevant columns and target variable
-X = data[['Gender', 'Age', 'Academic Pressure', 'Study Satisfaction', 'Work/Study Hours', 'Financial Stress']]
-y = data['Depression']  # Target variable
+@st.cache_data
+def load_depression_data():
+    data = pd.read_csv('inliers.csv')
+    return data
 
-# Handle categorical variables (if any)
-X = pd.get_dummies(X, drop_first=True)
+@st.cache_data
+def load_cgpa_data():
+    return pd.read_csv("data.csv")
 
-# Normalize/Scale the numerical features
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
+def prepare_depression_data(data):
+    X = data[['Gender', 'Age', 'Academic Pressure', 'Study Satisfaction', 'Work/Study Hours', 'Financial Stress']]
+    y = data['Depression']
+    X = pd.get_dummies(X, drop_first=True)
+    X_scaled = st.session_state.scaler.fit_transform(X)
+    return train_test_split(X_scaled, y, test_size=0.2, random_state=42)
 
-# Train-test split (80% training, 20% testing)
-X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+def prepare_user_input(user_input):
+    user_input = pd.get_dummies(user_input, drop_first=True)
+    return st.session_state.scaler.transform(user_input)
+
+def bound_cgpa(cgpa_value):
+    """Ensure CGPA stays within 0-10 range"""
+    return max(0, min(10, cgpa_value))
 
 # --- Streamlit Dashboard ---
-st.title("Depression Prediction Dashboard")
+st.title("Student Performance and Wellbeing Prediction Dashboard")
 
-# Sidebar Input Fields for Feature Values
-st.sidebar.header("Input Features")
-gender = st.sidebar.selectbox("Gender", options=["Male", "Female"])
-age = st.sidebar.slider("Age", min_value=18, max_value=40, value=22)
-academic_pressure = st.sidebar.slider("Academic Pressure", min_value=1, max_value=5, value=3)
-study_satisfaction = st.sidebar.slider("Study Satisfaction", min_value=1, max_value=5, value=3)
-work_study_hours = st.sidebar.slider("Work/Study Hours", min_value=1, max_value=24, value=6)
-financial_stress = st.sidebar.slider("Financial Stress", min_value=1, max_value=5, value=3)
+# Sidebar Selection for Prediction Type
+prediction_type = st.sidebar.selectbox("Select Prediction Type", 
+                                     options=["Depression Prediction", "CGPA Prediction"])
 
-# Convert categorical 'Gender' to numerical value (Male = 1, Female = 0)
-gender = 1 if gender == "Male" else 0
+try:
+    if prediction_type == "Depression Prediction":
+        st.sidebar.header("Input Features for Depression Prediction")
+        
+        # User input collection
+        gender = st.sidebar.selectbox("Gender", options=["Male", "Female"])
+        age = st.sidebar.slider("Age", min_value=18, max_value=40, value=22)
+        academic_pressure = st.sidebar.slider("Academic Pressure", min_value=1, max_value=5, value=3)
+        study_satisfaction = st.sidebar.slider("Study Satisfaction", min_value=1, max_value=5, value=3)
+        work_study_hours = st.sidebar.slider("Work/Study Hours", min_value=1, max_value=24, value=6)
+        financial_stress = st.sidebar.slider("Financial Stress", min_value=1, max_value=5, value=3)
 
-# Create a DataFrame for user input
-user_input = pd.DataFrame({
-    'Gender': [gender],
-    'Age': [age],
-    'Academic Pressure': [academic_pressure],
-    'Study Satisfaction': [study_satisfaction],
-    'Work/Study Hours': [work_study_hours],
-    'Financial Stress': [financial_stress]
-})
+        # Load and prepare data
+        data = load_depression_data()
+        X_train, X_test, y_train, y_test = prepare_depression_data(data)
 
-# Handle categorical variables for input (if any)
-user_input = pd.get_dummies(user_input, drop_first=True)
+        # Prepare user input
+        user_input = pd.DataFrame({
+            'Gender': [1 if gender == "Male" else 0],
+            'Age': [age],
+            'Academic Pressure': [academic_pressure],
+            'Study Satisfaction': [study_satisfaction],
+            'Work/Study Hours': [work_study_hours],
+            'Financial Stress': [financial_stress]
+        })
+        user_input_scaled = prepare_user_input(user_input)
 
-# Normalize/Scale the user input
-user_input_scaled = scaler.transform(user_input)
+        # Model training and predictions
+        with st.spinner('Training models and making predictions...'):
+            # Logistic Regression
+            log_reg = LogisticRegression(solver='saga', C=0.01, max_iter=2000, random_state=42)
+            log_reg.fit(X_train, y_train)
+            log_reg_pred = log_reg.predict(user_input_scaled)
 
-# --- Model Predictions ---
+            # Decision Tree
+            decision_tree = DecisionTreeClassifier(max_depth=50, min_samples_split=10, 
+                                                 min_samples_leaf=30, random_state=42)
+            decision_tree.fit(X_train, y_train)
+            dt_pred = decision_tree.predict(user_input_scaled)
 
-# Logistic Regression with best hyperparameters
-log_reg = LogisticRegression(solver='saga', C=0.01, max_iter=2000, random_state=42)
-log_reg.fit(X_train, y_train)
-log_reg_pred = log_reg.predict(user_input_scaled)
+            # KNN
+            knn = KNeighborsClassifier(weights='uniform', n_neighbors=50, metric='manhattan')
+            knn.fit(X_train, y_train)
+            knn_pred = knn.predict(user_input_scaled)
 
-# Decision Tree Classifier with best hyperparameters
-decision_tree = DecisionTreeClassifier(max_depth=50, min_samples_split=10, min_samples_leaf=30, max_features=None, random_state=42)
-decision_tree.fit(X_train, y_train)
-dt_pred = decision_tree.predict(user_input_scaled)
+        # Display predictions
+        st.subheader("Model Predictions")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Logistic Regression", 
+                     "Depressed" if log_reg_pred[0] == 1 else "Not Depressed")
+        with col2:
+            st.metric("Decision Tree", 
+                     "Depressed" if dt_pred[0] == 1 else "Not Depressed")
+        with col3:
+            st.metric("KNN", 
+                     "Depressed" if knn_pred[0] == 1 else "Not Depressed")
 
-# K-Nearest Neighbors (KNN) with best hyperparameters
-knn = KNeighborsClassifier(weights='uniform', n_neighbors=50, metric='manhattan', leaf_size=10)
-knn.fit(X_train, y_train)
-knn_pred = knn.predict(user_input_scaled)
+        # Model evaluation metrics in expandable section
+        with st.expander("View Model Evaluation Metrics"):
+            for model_name, model in [("Logistic Regression", log_reg), 
+                                    ("Decision Tree", decision_tree), 
+                                    ("KNN", knn)]:
+                st.subheader(model_name)
+                y_pred = model.predict(X_test)
+                st.write(f"Accuracy: {accuracy_score(y_test, y_pred):.2f}")
+                st.write("Confusion Matrix:")
+                st.write(confusion_matrix(y_test, y_pred))
+                st.write("Classification Report:")
+                st.text(classification_report(y_test, y_pred))
 
-# Display predictions
-st.subheader("Model Predictions")
-st.write(f"Prediction from Logistic Regression: {'Depressed' if log_reg_pred[0] == 1 else 'Not Depressed'}")
-st.write(f"Prediction from Decision Tree: {'Depressed' if dt_pred[0] == 1 else 'Not Depressed'}")
-st.write(f"Prediction from K-Nearest Neighbors: {'Depressed' if knn_pred[0] == 1 else 'Not Depressed'}")
+    else:  # CGPA Prediction
+        st.sidebar.header("Input Features for CGPA Prediction")
+        
+        # User input collection
+        study_hours = st.sidebar.slider("Study Hours", min_value=1, max_value=24, value=6,
+                                      help="Number of hours spent studying per day")
+        academic_pressure = st.sidebar.slider("Academic Pressure", min_value=1, max_value=5, value=3,
+                                           help="Level of academic pressure (1: Very Low, 5: Very High)")
+        financial_stress = st.sidebar.slider("Financial Stress", min_value=1, max_value=5, value=3,
+                                          help="Level of financial stress (1: Very Low, 5: Very High)")
+        gender = st.sidebar.selectbox("Gender", options=["Male", "Female"])
+        study_satisfaction = st.sidebar.slider("Study Satisfaction", min_value=1, max_value=5, value=3,
+                                            help="Level of satisfaction with studies (1: Very Low, 5: Very High)")
 
-# --- Model Evaluation Metrics (Precision & Recall) ---
+        # Load and prepare CGPA data
+        data_lr = load_cgpa_data()
+        X_lr = data_lr[['Study Hours', 'Academic Pressure', 
+                        'Financial Stress', 'Gender', 'Study Satisfaction']]  # Removed Age
+        y_lr = data_lr['CGPA']
+        X_lr_scaled = st.session_state.scaler_lr.fit_transform(X_lr)
 
-# Logistic Regression Evaluation
-log_reg_precision = precision_score(y_test, log_reg.predict(X_test))
-log_reg_recall = recall_score(y_test, log_reg.predict(X_test))
+        # Prepare user input
+        user_input_cgpa = pd.DataFrame({
+            'Study Hours': [study_hours],
+            'Academic Pressure': [academic_pressure],
+            'Financial Stress': [financial_stress],
+            'Gender': [1 if gender == "Male" else 0],
+            'Study Satisfaction': [study_satisfaction]
+        })
+        user_input_cgpa_scaled = st.session_state.scaler_lr.transform(user_input_cgpa)
 
-# Decision Tree Evaluation
-dt_precision = precision_score(y_test, dt_best_model.predict(X_test))
-dt_recall = recall_score(y_test, dt_best_model.predict(X_test))
+        # Train and predict
+        with st.spinner('Calculating CGPA prediction...'):
+            lr_model = LinearRegression()
+            lr_model.fit(X_lr_scaled, y_lr)
+            cgpa_prediction = lr_model.predict(user_input_cgpa_scaled)
+            bounded_cgpa = bound_cgpa(cgpa_prediction[0])
 
-# KNN Evaluation
-knn_precision = precision_score(y_test, knn_best_model.predict(X_test))
-knn_recall = recall_score(y_test, knn_best_model.predict(X_test))
+        # Display prediction
+        st.subheader("CGPA Prediction")
+        st.metric("Predicted CGPA", f"{bounded_cgpa:.2f}")
+        
+        # Add interpretation
+        st.info("""
+        Note: The predicted CGPA is bounded between 0 and 10, which is the standard CGPA scale.
+        - Higher study hours and study satisfaction generally correlate with higher CGPA
+        - Academic pressure and financial stress may negatively impact CGPA
+        """)
 
-# --- Show Model Comparison (Precision & Recall) ---
-model_comparison = pd.DataFrame({
-    'Model': ['Logistic Regression', 'Tuned Decision Tree', 'Tuned KNN'],
-    'Precision': [log_reg_precision, dt_precision, knn_precision],
-    'Recall': [log_reg_recall, dt_recall, knn_recall]
-})
-
-st.subheader("Model Comparison (Precision & Recall)")
-st.write(model_comparison)
+except Exception as e:
+    st.error(f"An error occurred: {str(e)}")
+    st.error("Please check your input data and try again.")

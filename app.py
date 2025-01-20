@@ -57,36 +57,20 @@ user_input_scaled = scaler.transform(user_input)
 
 # --- Model Predictions ---
 
-# Logistic Regression
-log_reg = LogisticRegression(max_iter=1000, random_state=42)
+# Logistic Regression with best hyperparameters
+log_reg = LogisticRegression(solver='saga', C=0.01, max_iter=2000, random_state=42)
 log_reg.fit(X_train, y_train)
 log_reg_pred = log_reg.predict(user_input_scaled)
 
-# Decision Tree Classifier with RandomizedSearchCV
-dt_param_dist = {
-    'max_depth': [3, 5, 10, None],
-    'min_samples_split': [2, 5, 10, 20],
-    'min_samples_leaf': [1, 2, 4, 10],
-    'max_features': [None, 'sqrt', 'log2']
-}
+# Decision Tree Classifier with best hyperparameters
+decision_tree = DecisionTreeClassifier(max_depth=50, min_samples_split=10, min_samples_leaf=30, max_features=None, random_state=42)
+decision_tree.fit(X_train, y_train)
+dt_pred = decision_tree.predict(user_input_scaled)
 
-dt_random_search = RandomizedSearchCV(DecisionTreeClassifier(random_state=42), dt_param_dist, n_iter=10, cv=3, n_jobs=-1, random_state=42)
-dt_random_search.fit(X_train, y_train)
-dt_best_model = dt_random_search.best_estimator_
-dt_pred = dt_best_model.predict(user_input_scaled)
-
-# K-Nearest Neighbors (KNN) with RandomizedSearchCV
-knn_param_dist = {
-    'n_neighbors': [3, 5, 7, 10, 15, 20],
-    'weights': ['uniform', 'distance'],
-    'metric': ['euclidean', 'manhattan', 'minkowski'],
-    'leaf_size': [20, 30, 40]
-}
-
-knn_random_search = RandomizedSearchCV(KNeighborsClassifier(), knn_param_dist, n_iter=10, cv=3, n_jobs=-1, random_state=42)
-knn_random_search.fit(X_train, y_train)
-knn_best_model = knn_random_search.best_estimator_
-knn_pred = knn_best_model.predict(user_input_scaled)
+# K-Nearest Neighbors (KNN) with best hyperparameters
+knn = KNeighborsClassifier(weights='uniform', n_neighbors=50, metric='manhattan', leaf_size=10)
+knn.fit(X_train, y_train)
+knn_pred = knn.predict(user_input_scaled)
 
 # Display predictions
 st.subheader("Model Predictions")
